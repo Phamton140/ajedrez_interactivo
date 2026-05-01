@@ -80,6 +80,12 @@ export const displaySan = (san: string): string => {
 const fixOcrArtifacts = (text: string): string => {
   let fixed = text;
   
+  // Corrige 'l.' o 'I.' que en realidad son el número '1.' al inicio de una jugada
+  fixed = fixed.replace(/\b[lI]\./g, '1.');
+
+  // Une el número de jugada con los puntos suspensivos si el OCR los separó (ej. "2 ..." -> "2...")
+  fixed = fixed.replace(/\b(\d+)\s+\.\.\./g, '$1...');
+  
   // Artefactos comunes para Caballo (♘ / ♞)
   fixed = fixed.replace(/tLl/g, '\u265E');
   fixed = fixed.replace(/tt:l/g, '\u265E');
