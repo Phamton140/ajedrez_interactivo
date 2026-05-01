@@ -45,47 +45,31 @@ export interface Token {
   page?: number;
 }
 
-const SAN_REGEX = /^([RDTAC])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC]))?([+#]?)([?!]*)$/;
+const SAN_REGEX = /^([RDTAC\u2654-\u265E])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC\u2654-\u265E]))?([+#]?)([?!]*)$/;
 const CASTLING_REGEX = /^O-O(-O)?([+#]?)([?!]*)$/;
 
-/**
- * Mapeo de símbolos Unicode de piezas de ajedrez a su equivalente en notación
- * algébraica española. Se usan tanto los símbolos blancos como los negros
- * ya que en libros de texto ambos se emplean indistintamente.
- */
-const CHESS_SYMBOL_MAP: Record<string, string> = {
-  '\u2654': 'R', '\u265A': 'R', // ♔ ♚ Rey
-  '\u2655': 'D', '\u265B': 'D', // ♕ ♛ Dama
-  '\u2656': 'T', '\u265C': 'T', // ♖ ♜ Torre
-  '\u2657': 'A', '\u265D': 'A', // ♗ ♝ Alfil
-  '\u2658': 'C', '\u265E': 'C', // ♘ ♞ Caballo
-  // ♙♟ Peón: no tiene letra en SAN, se omite conscientemente
-};
-
-/** Sustituye símbolos Unicode de piezas por sus letras en español. */
-const normalizeChessSymbols = (text: string): string =>
-  text.replace(/[\u2654-\u265E]/g, (sym) => CHESS_SYMBOL_MAP[sym] ?? sym);
+// Ya no destruimos los símbolos Unicode globales, por lo que se elimina normalizeChessSymbols.
 
 /**
  * Mapa inverso: letra española → símbolo Unicode (blanco) para display.
  * Se usan las piezas blancas porque se ven mejor sobre fondos oscuros.
  */
 const PIECE_DISPLAY_MAP: Record<string, string> = {
-  'R': '\u2654', // ♔ Rey
-  'D': '\u2655', // ♕ Dama
-  'T': '\u2656', // ♖ Torre
-  'A': '\u2657', // ♗ Alfil
-  'C': '\u2658', // ♘ Caballo
+  'R': '\u2654', '\u265A': '\u2654', // ♔ Rey
+  'D': '\u2655', '\u265B': '\u2655', // ♕ Dama
+  'T': '\u2656', '\u265C': '\u2656', // ♖ Torre
+  'A': '\u2657', '\u265D': '\u2657', // ♗ Alfil
+  'C': '\u2658', '\u265E': '\u2658', // ♘ Caballo
 };
 
 /**
  * Convierte notación SAN española a notación con símbolos Unicode para display.
- * Ejemplos: "Ce4" → "♘e4", "Dxf7+" → "♕xf7+", "e4" → "e4", "O-O" → "O-O"
+ * Ejemplos: "Ce4" → "♘e4", "Dxf7+" → "♕xf7+", "e4" → "e4"
  */
 export const displaySan = (san: string): string => {
   if (!san || san === '???') return san;
-  // Sustituimos la inicial si va inmediatamente seguida de casilla, captura, etc.
-  return san.replace(/^([RDTAC])(?=[a-h1-8x+#?!])/, (m) => PIECE_DISPLAY_MAP[m] ?? m);
+  // Sustituimos la inicial (letra o símbolo negro) por el símbolo blanco.
+  return san.replace(/^([RDTAC\u265A-\u265E])(?=[a-h1-8x+#?!])/, (m) => PIECE_DISPLAY_MAP[m] ?? m);
 };
 
 export const extractTextFromPdf = async (file: File): Promise<string> => {
@@ -129,13 +113,9 @@ export const tokenize = (text: string): Token[] => {
   const parts = text.split(/@@PAGE:(\d+)@@/);
   
   const processChunk = (chunk: string, page: number) => {
-    // Paso 1: normalizar símbolos Unicode de piezas a letras españolas
-    let spaced = normalizeChessSymbols(chunk);
-
-    // Paso 2: re-unir letra de pieza con su casilla si quedaron separados por espacio.
-    // Ocurre cuando el PDF tiene la pieza y el destino en distintos text-runs:
-    // ej. "C e7" → "Ce7", "C xf2" → "Cxf2", "C xh1+" → "Cxh1+"
-    spaced = spaced.replace(/([RDTAC]) (x?[a-h][1-8][+#]?[?!]*)/g, '$1$2');
+    // Re-unir letra o símbolo de pieza con su casilla si quedaron separados por espacio.
+    // ej. "C e7" → "Ce7", "♘ e7" → "♘e7"
+    let spaced = chunk.replace(/([RDTAC\u2654-\u265E]) (x?[a-h][1-8][+#]?[?!]*)/g, '$1$2');
 
     spaced = spaced.replace(/([()[\]{}])/g, ' $1 ');
     // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
@@ -146,9 +126,9 @@ export const tokenize = (text: string): Token[] => {
     
     // Separar jugadas pegadas tipo e4e5 -> e4 e5
     spaced = spaced.replace(/([a-h][1-8])([a-h][1-8])/g, '$1 $2');
-    spaced = spaced.replace(/([RDTAC][a-h][1-8])([RDTAC][a-h][1-8])/g, '$1 $2');
-    spaced = spaced.replace(/([RDTAC][a-h][1-8])([a-h][1-8])/g, '$1 $2');
-    spaced = spaced.replace(/([a-h][1-8])([RDTAC][a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([RDTAC\u2654-\u265E][a-h][1-8])([RDTAC\u2654-\u265E][a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([RDTAC\u2654-\u265E][a-h][1-8])([a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([a-h][1-8])([RDTAC\u2654-\u265E][a-h][1-8])/g, '$1 $2');
     spaced = spaced.replace(/([a-h]x[a-h][1-8])([a-h]x[a-h][1-8])/g, '$1 $2');
     
     const rawTokens = spaced.split(/\s+/);
@@ -204,24 +184,24 @@ export const tokenize = (text: string): Token[] => {
 export const translateEsToEn = (sanEs: string): string => {
   if (sanEs.includes('O-O')) return sanEs;
   
-  let translated = sanEs.replace(/^([RDTAC])/, (match) => {
+  let translated = sanEs.replace(/^([RDTAC\u2654-\u265E])/, (match) => {
     switch (match) {
-      case 'R': return 'K';
-      case 'D': return 'Q';
-      case 'T': return 'R';
-      case 'A': return 'B';
-      case 'C': return 'N';
+      case 'R': case '\u2654': case '\u265A': return 'K';
+      case 'D': case '\u2655': case '\u265B': return 'Q';
+      case 'T': case '\u2656': case '\u265C': return 'R';
+      case 'A': case '\u2657': case '\u265D': return 'B';
+      case 'C': case '\u2658': case '\u265E': return 'N';
       default: return match;
     }
   });
   
   // Promociones c8=D -> c8=Q
-  translated = translated.replace(/=([RDTAC])/, (match, p1) => {
+  translated = translated.replace(/=([RDTAC\u2654-\u265E])/, (match, p1) => {
     switch (p1) {
-      case 'D': return '=Q';
-      case 'T': return '=R';
-      case 'A': return '=B';
-      case 'C': return '=N';
+      case 'D': case '\u2655': case '\u265B': return '=Q';
+      case 'T': case '\u2656': case '\u265C': return '=R';
+      case 'A': case '\u2657': case '\u265D': return '=B';
+      case 'C': case '\u2658': case '\u265E': return '=N';
       default: return match;
     }
   });
