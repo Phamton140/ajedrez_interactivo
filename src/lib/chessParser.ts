@@ -45,7 +45,8 @@ export interface Token {
   page?: number;
 }
 
-const SAN_REGEX = /^([RDTAC\u2654-\u265E])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC\u2654-\u265E]))?([+#]?)([?!]*)$/;
+// \ufffd es el caracter de reemplazo que pdfjs genera cuando no reconoce un símbolo de fuente de ajedrez.
+const SAN_REGEX = /^([RDTAC\u2654-\u265E\ufffd])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC\u2654-\u265E\ufffd]))?([+#]?)([?!]*)$/;
 const CASTLING_REGEX = /^O-O(-O)?([+#]?)([?!]*)$/;
 
 // Ya no destruimos los símbolos Unicode globales, por lo que se elimina normalizeChessSymbols.
@@ -115,7 +116,7 @@ export const tokenize = (text: string): Token[] => {
   const processChunk = (chunk: string, page: number) => {
     // Re-unir letra o símbolo de pieza con su casilla si quedaron separados por espacio.
     // ej. "C e7" → "Ce7", "♘ e7" → "♘e7"
-    let spaced = chunk.replace(/([RDTAC\u2654-\u265E]) (x?[a-h][1-8][+#]?[?!]*)/g, '$1$2');
+    let spaced = chunk.replace(/([RDTAC\u2654-\u265E\ufffd]) (x?[a-h][1-8][+#]?[?!]*)/g, '$1$2');
 
     spaced = spaced.replace(/([()[\]{}])/g, ' $1 ');
     // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
@@ -126,9 +127,9 @@ export const tokenize = (text: string): Token[] => {
     
     // Separar jugadas pegadas tipo e4e5 -> e4 e5
     spaced = spaced.replace(/([a-h][1-8])([a-h][1-8])/g, '$1 $2');
-    spaced = spaced.replace(/([RDTAC\u2654-\u265E][a-h][1-8])([RDTAC\u2654-\u265E][a-h][1-8])/g, '$1 $2');
-    spaced = spaced.replace(/([RDTAC\u2654-\u265E][a-h][1-8])([a-h][1-8])/g, '$1 $2');
-    spaced = spaced.replace(/([a-h][1-8])([RDTAC\u2654-\u265E][a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([RDTAC\u2654-\u265E\ufffd][a-h][1-8])([RDTAC\u2654-\u265E\ufffd][a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([RDTAC\u2654-\u265E\ufffd][a-h][1-8])([a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([a-h][1-8])([RDTAC\u2654-\u265E\ufffd][a-h][1-8])/g, '$1 $2');
     spaced = spaced.replace(/([a-h]x[a-h][1-8])([a-h]x[a-h][1-8])/g, '$1 $2');
     
     const rawTokens = spaced.split(/\s+/);
