@@ -83,6 +83,12 @@ const fixOcrArtifacts = (text: string): string => {
   // Corrige 'l.' o 'I.' que en realidad son el número '1.' al inicio de una jugada, incluso con espacio extra
   fixed = fixed.replace(/\b[lI]\s*\./g, '1.');
 
+  // Corrige OCR de 'lO.' que en realidad es '10.'
+  fixed = fixed.replace(/\blO\s*\./g, '10.');
+
+  // Espacios dentro de números de jugada (ej. "1 1." -> "11.")
+  fixed = fixed.replace(/\b(\d)\s+(\d)\s*\./g, '$1$2.');
+
   // Une el número de jugada con su punto si el OCR los separó (ej. "2 ." -> "2.")
   fixed = fixed.replace(/\b(\d+)\s+\./g, '$1.');
 
@@ -103,6 +109,9 @@ const fixOcrArtifacts = (text: string): string => {
   
   // OCR que separa la letra y el número de la casilla (ej. "e 5" -> "e5")
   fixed = fixed.replace(/\b([a-h]) ([1-8])\b/g, '$1$2');
+
+  // OCR que confunde el número 5 con la letra S mayúscula en casillas (ej. "dS" -> "d5")
+  fixed = fixed.replace(/\b([a-h])S\b/g, '$15');
 
   return fixed;
 };
@@ -336,9 +345,13 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
     
     if (t.type === 'Text') {
       textBuffer.push(t.value);
-      // NO cambiamos lastMoveCtx aquí — el texto no interrumpe la secuencia de jugadas.
-      // Esto permite que tras un comentario largo, el siguiente número de jugada
-      // todavía active el modo "esperar SAN".
+      // REGLA DEL USUARIO: Si aparece una jugada sin número DESPUÉS de un texto explicativo, 
+      // es solo un comentario del autor.
+      // Solo consideramos texto explicativo a las palabras reales (que contienen letras),
+      // no a simple puntuación como "..." o ",".
+      if (/[A-Za-z]/.test(t.value)) {
+        lastMoveCtx = 'text';
+      }
     } else if (t.type === 'MoveNumber') {
       const numMatch = t.value.match(/(\d+)/);
       if (numMatch) {
