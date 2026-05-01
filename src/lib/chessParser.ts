@@ -66,6 +66,28 @@ const CHESS_SYMBOL_MAP: Record<string, string> = {
 const normalizeChessSymbols = (text: string): string =>
   text.replace(/[\u2654-\u265E]/g, (sym) => CHESS_SYMBOL_MAP[sym] ?? sym);
 
+/**
+ * Mapa inverso: letra española → símbolo Unicode (blanco) para display.
+ * Se usan las piezas blancas porque se ven mejor sobre fondos oscuros.
+ */
+const PIECE_DISPLAY_MAP: Record<string, string> = {
+  'R': '\u2654', // ♔ Rey
+  'D': '\u2655', // ♕ Dama
+  'T': '\u2656', // ♖ Torre
+  'A': '\u2657', // ♗ Alfil
+  'C': '\u2658', // ♘ Caballo
+};
+
+/**
+ * Convierte notación SAN española a notación con símbolos Unicode para display.
+ * Ejemplos: "Ce4" → "♘e4", "Dxf7+" → "♕xf7+", "e4" → "e4", "O-O" → "O-O"
+ */
+export const displaySan = (san: string): string => {
+  if (!san || san === '???') return san;
+  // Sustituimos la inicial si va inmediatamente seguida de casilla, captura, etc.
+  return san.replace(/^([RDTAC])(?=[a-h1-8x+#?!])/, (m) => PIECE_DISPLAY_MAP[m] ?? m);
+};
+
 export const extractTextFromPdf = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -107,8 +129,14 @@ export const tokenize = (text: string): Token[] => {
   const parts = text.split(/@@PAGE:(\d+)@@/);
   
   const processChunk = (chunk: string, page: number) => {
-    // Primero normalizamos los símbolos Unicode de piezas a letras españolas
+    // Paso 1: normalizar símbolos Unicode de piezas a letras españolas
     let spaced = normalizeChessSymbols(chunk);
+
+    // Paso 2: re-unir letra de pieza con su casilla si quedaron separados por espacio.
+    // Ocurre cuando el PDF tiene la pieza y el destino en distintos text-runs:
+    // ej. "C e7" → "Ce7", "C xf2" → "Cxf2", "C xh1+" → "Cxh1+"
+    spaced = spaced.replace(/([RDTAC]) (x?[a-h][1-8][+#]?[?!]*)/g, '$1$2');
+
     spaced = spaced.replace(/([()[\]{}])/g, ' $1 ');
     // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
     spaced = spaced.replace(/O\s*-\s*O\s*-\s*O/g, 'O-O-O');

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { FileUp, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
-import { extractTextFromPdf, tokenize, parsePGNTree, translateEsToEn, translateEnToEs, type ChessState, type GameNode } from '../lib/chessParser';
+import { extractTextFromPdf, tokenize, parsePGNTree, translateEsToEn, translateEnToEs, displaySan, type ChessState, type GameNode } from '../lib/chessParser';
 import { Chess } from 'chess.js';
 import { v4 as uuidv4 } from 'uuid';
 import { BookOpen } from 'lucide-react';
@@ -329,7 +329,7 @@ export const ChessReader = () => {
             title={node.error ? `Error: ${node.error}` : ''}
           >
             {node.error && node.type !== 'missing_move' && <AlertTriangle size={14} className="mr-1 inline" />}
-            {node.sanEs}
+            {displaySan(node.sanEs)}
           </span>
         )}
 
