@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { FileUp, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
-import { extractTextFromPdf, tokenize, parsePGNTree, translateEsToEn, type ChessState } from '../lib/chessParser';
+import { extractTextFromPdf, tokenize, parsePGNTree, translateEsToEn, translateEnToEs, type ChessState, type GameNode } from '../lib/chessParser';
 import { Chess } from 'chess.js';
+import { v4 as uuidv4 } from 'uuid';
 
 export const ChessReader = () => {
+  const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   const [gameState, setGameState] = useState<ChessState | null>(null);
-  const [currentFen, setCurrentFen] = useState('start');
+  const [currentFen, setCurrentFen] = useState(STARTING_FEN);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
@@ -32,7 +34,7 @@ export const ChessReader = () => {
       const tokens = tokenize(text);
       const state = parsePGNTree(tokens);
       setGameState(state);
-      setCurrentFen('start');
+      setCurrentFen(STARTING_FEN);
       setActiveNodeId(state.rootId);
     } catch (err) {
       console.error(err);
@@ -49,7 +51,7 @@ export const ChessReader = () => {
       if (node.type === 'move' || node.type === 'missing_move') {
         setCurrentFen(node.fen);
       } else if (node.type === 'root') {
-        setCurrentFen('start');
+        setCurrentFen(STARTING_FEN);
       }
       setActiveNodeId(nodeId);
     }
@@ -70,6 +72,78 @@ export const ChessReader = () => {
     if (node.parentId) {
       goToNode(node.parentId);
     }
+  };
+
+  const onPieceDrop = ({ sourceSquare, targetSquare, piece }: { sourceSquare: string, targetSquare: string | null, piece: { pieceType: string } }) => {
+    if (!gameState || !activeNodeId || !targetSquare) return false;
+
+    const chess = new Chess(currentFen);
+    
+    let move;
+    try {
+      move = chess.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: piece.pieceType?.[1]?.toLowerCase() || 'q',
+      });
+    } catch {
+      return false;
+    }
+
+    if (move) {
+      const node = gameState.nodes[activeNodeId];
+      
+      const existingChildId = node.childrenIds.find(childId => {
+        const child = gameState.nodes[childId];
+        return child.sanEn === move.san;
+      });
+
+      if (existingChildId) {
+        goToNode(existingChildId);
+        return true;
+      }
+
+      const newNodeId = uuidv4();
+      const newNode: GameNode = {
+        id: newNodeId,
+        parentId: activeNodeId,
+        childrenIds: [],
+        type: 'move',
+        sanEs: translateEnToEs(move.san),
+        sanEn: move.san,
+        fen: chess.fen(),
+        moveNumber: chess.moveNumber() - (chess.turn() === 'w' ? 1 : 0),
+        turn: chess.turn(),
+        playedColor: chess.turn() === 'w' ? 'b' : 'w',
+        commentBefore: '',
+        commentAfter: ' [Variante del usuario]',
+        isValid: true,
+        isMainLine: false,
+      };
+
+      setGameState(prevState => {
+        if (!prevState) return prevState;
+        // Deep copy the nodes to avoid mutating previous state
+        const newState = {
+          ...prevState,
+          nodes: {
+            ...prevState.nodes,
+            [activeNodeId]: {
+              ...prevState.nodes[activeNodeId],
+              childrenIds: [...prevState.nodes[activeNodeId].childrenIds, newNodeId],
+            },
+            [newNodeId]: newNode,
+          },
+        };
+        return newState;
+      });
+      
+      setCurrentFen(newNode.fen);
+      setActiveNodeId(newNodeId);
+      return true;
+    }
+    
+    return false;
   };
 
   const fixMissingMove = (nodeId: string) => {
@@ -106,7 +180,7 @@ export const ChessReader = () => {
         } else {
           alert('Jugada no válida en esta posición.');
         }
-      } catch (e) {
+      } catch {
         alert('Formato de jugada incorrecto.');
       }
       return newState;
@@ -151,7 +225,7 @@ export const ChessReader = () => {
         } else {
           alert('Jugada no válida en esta posición.');
         }
-      } catch (e) {
+      } catch {
         alert('Formato de jugada incorrecto.');
       }
       return newState;
@@ -174,7 +248,7 @@ export const ChessReader = () => {
             child.isValid = false;
             child.fen = node.fen; // Se queda con el fen del padre
           }
-        } catch (e) {
+        } catch {
           child.isValid = false;
           child.fen = node.fen;
         }
@@ -280,11 +354,14 @@ export const ChessReader = () => {
         <div className="w-full max-w-[500px] mb-8 relative group">
           <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-sm blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
           <div className="relative shadow-2xl rounded-sm overflow-hidden ring-1 ring-slate-800/50 bg-slate-800">
-            {/* @ts-expect-error react-chessboard typings issue */}
-            <Chessboard key={currentFen} position={currentFen} 
-              customDarkSquareStyle={{ backgroundColor: 'var(--color-board-dark)' }}
-              customLightSquareStyle={{ backgroundColor: 'var(--color-board-light)' }}
-              animationDuration={300}
+            <Chessboard 
+              options={{
+                position: currentFen,
+                onPieceDrop: onPieceDrop,
+                darkSquareStyle: { backgroundColor: 'var(--color-board-dark)' },
+                lightSquareStyle: { backgroundColor: 'var(--color-board-light)' },
+                animationDurationInMs: 300
+              }}
             />
           </div>
         </div>

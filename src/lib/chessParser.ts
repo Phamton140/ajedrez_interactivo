@@ -42,8 +42,8 @@ export interface Token {
   value: string;
 }
 
-const SAN_REGEX = /^([RDTAC])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC]))?([+#]?)([\?!]*)$/;
-const CASTLING_REGEX = /^O-O(-O)?([+#]?)([\?!]*)$/;
+const SAN_REGEX = /^([RDTAC])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC]))?([+#]?)([?!]*)$/;
+const CASTLING_REGEX = /^O-O(-O)?([+#]?)([?!]*)$/;
 
 export const extractTextFromPdf = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
@@ -53,7 +53,7 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item: any) => item.str).join(' ');
+    const pageText = textContent.items.map((item: { str: string }) => item.str).join(' ');
     fullText += pageText + ' \n ';
   }
   
@@ -63,7 +63,7 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
 export const tokenize = (text: string): Token[] => {
   const tokens: Token[] = [];
   
-  let spaced = text.replace(/([()\[\]{}])/g, ' $1 ');
+  let spaced = text.replace(/([()[\]{}])/g, ' $1 ');
   // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
   spaced = spaced.replace(/O\s*-\s*O\s*-\s*O/g, 'O-O-O');
   spaced = spaced.replace(/O\s*-\s*O/g, 'O-O');
@@ -79,7 +79,7 @@ export const tokenize = (text: string): Token[] => {
   
   const rawTokens = spaced.split(/\s+/);
   
-  for (let t of rawTokens) {
+  for (const t of rawTokens) {
     if (!t) continue;
     
     if (t === '(') { tokens.push({ type: 'ParenOpen', value: '(' }); continue; }
@@ -133,6 +133,34 @@ export const translateEsToEn = (sanEs: string): string => {
       case 'T': return '=R';
       case 'A': return '=B';
       case 'C': return '=N';
+      default: return match;
+    }
+  });
+
+  return translated;
+};
+
+export const translateEnToEs = (sanEn: string): string => {
+  if (sanEn.includes('O-O')) return sanEn;
+  
+  let translated = sanEn.replace(/^[KQBNR]/, (match) => {
+    switch (match) {
+      case 'K': return 'R';
+      case 'Q': return 'D';
+      case 'R': return 'T';
+      case 'B': return 'A';
+      case 'N': return 'C';
+      default: return match;
+    }
+  });
+  
+  // Promociones
+  translated = translated.replace(/=[QRBN]/, (match) => {
+    switch (match.charAt(1)) {
+      case 'Q': return '=D';
+      case 'R': return '=T';
+      case 'B': return '=A';
+      case 'N': return '=C';
       default: return match;
     }
   });
@@ -250,7 +278,7 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
       let move = null;
       try {
         move = chess.move(sanEn);
-      } catch (e: any) {
+      } catch {
         // Falló en el turno actual
       }
 
@@ -264,7 +292,7 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
         try {
           const flippedChess = new Chess(flippedFen);
           validForOther = !!flippedChess.move(sanEn);
-        } catch (e) {}
+        } catch { /* ignore */ }
 
         if (validForOther) {
           // Detectamos que falta una jugada del color actual
@@ -302,7 +330,7 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
               fen = flippedChess.fen();
               error = undefined; // El error era por la jugada anterior
             }
-          } catch (e) {
+          } catch {
             error = 'Jugada inválida o fuera de secuencia';
           }
         } else {
