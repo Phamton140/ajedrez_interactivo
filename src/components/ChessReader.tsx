@@ -78,6 +78,50 @@ export const ChessReader = () => {
     }
   };
 
+  const goDown = () => {
+    if (!gameState || !activeNodeId) return;
+    const node = gameState.nodes[activeNodeId];
+    if (!node.parentId) return;
+    
+    const parent = gameState.nodes[node.parentId];
+    const currentIndex = parent.childrenIds.indexOf(activeNodeId);
+    
+    // Si hay una variante siguiente (entrar en la variante / navegar hermano)
+    if (currentIndex < parent.childrenIds.length - 1) {
+      goToNode(parent.childrenIds[currentIndex + 1]);
+    }
+  };
+
+  const goUp = () => {
+    if (!gameState || !activeNodeId) return;
+    const node = gameState.nodes[activeNodeId];
+    if (!node.parentId) return;
+    
+    const parent = gameState.nodes[node.parentId];
+    const currentIndex = parent.childrenIds.indexOf(activeNodeId);
+    
+    // Si hay una variante anterior (salir de la variante / volver a línea principal)
+    if (currentIndex > 0) {
+      goToNode(parent.childrenIds[currentIndex - 1]);
+    }
+  };
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === 'ArrowRight') goNext();
+        else if (e.key === 'ArrowLeft') goPrev();
+        else if (e.key === 'ArrowDown') goDown();
+        else if (e.key === 'ArrowUp') goUp();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [gameState, activeNodeId]);
+
   const onPieceDrop = ({ sourceSquare, targetSquare, piece }: { sourceSquare: string, targetSquare: string | null, piece: { pieceType: string } }) => {
     if (!gameState || !activeNodeId || !targetSquare) return false;
 
