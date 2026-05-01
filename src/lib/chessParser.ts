@@ -52,25 +52,47 @@ const CASTLING_REGEX = /^O-O(-O)?([+#]?)([?!]*)$/;
 // Ya no destruimos los símbolos Unicode globales, por lo que se elimina normalizeChessSymbols.
 
 /**
- * Mapa inverso: letra española → símbolo Unicode (blanco) para display.
- * Se usan las piezas blancas porque se ven mejor sobre fondos oscuros.
+ * Mapa inverso: letra española → símbolo Unicode (negro/sólido) para display.
+ * Usamos las piezas negras (sólidas) porque al aplicarles color de texto CSS (blanco)
+ * se ven como iconos sólidos, lo cual es mucho más legible que los contornos finos.
  */
 const PIECE_DISPLAY_MAP: Record<string, string> = {
-  'R': '\u2654', '\u265A': '\u2654', // ♔ Rey
-  'D': '\u2655', '\u265B': '\u2655', // ♕ Dama
-  'T': '\u2656', '\u265C': '\u2656', // ♖ Torre
-  'A': '\u2657', '\u265D': '\u2657', // ♗ Alfil
-  'C': '\u2658', '\u265E': '\u2658', // ♘ Caballo
+  'R': '\u265A', '\u2654': '\u265A', // ♚ Rey
+  'D': '\u265B', '\u2655': '\u265B', // ♛ Dama
+  'T': '\u265C', '\u2656': '\u265C', // ♜ Torre
+  'A': '\u265D', '\u2657': '\u265D', // ♝ Alfil
+  'C': '\u265E', '\u2658': '\u265E', // ♞ Caballo
 };
 
 /**
- * Convierte notación SAN española a notación con símbolos Unicode para display.
- * Ejemplos: "Ce4" → "♘e4", "Dxf7+" → "♕xf7+", "e4" → "e4"
+ * Convierte notación SAN española a notación con símbolos Unicode sólidos para display.
  */
 export const displaySan = (san: string): string => {
   if (!san || san === '???') return san;
-  // Sustituimos la inicial (letra o símbolo negro) por el símbolo blanco.
-  return san.replace(/^([RDTAC\u265A-\u265E])(?=[a-h1-8x+#?!])/, (m) => PIECE_DISPLAY_MAP[m] ?? m);
+  // Sustituimos la inicial (letra o símbolo blanco) por el símbolo sólido negro.
+  return san.replace(/^([RDTAC\u2654-\u2658])(?=[a-h1-8x+#?!])/, (m) => PIECE_DISPLAY_MAP[m] ?? m);
+};
+
+/**
+ * Corrige los artefactos de OCR más comunes generados por fuentes de ajedrez
+ * antiguas (como Chess Merida o Linares) al ser leídas por pdfjs.
+ */
+const fixOcrArtifacts = (text: string): string => {
+  let fixed = text;
+  
+  // Artefactos comunes para Caballo (♘ / ♞)
+  fixed = fixed.replace(/\btLl\b/g, '\u265E');
+  fixed = fixed.replace(/\btt:l\b/g, '\u265E');
+  fixed = fixed.replace(/&ij/g, '\u265E');
+
+  // Artefactos comunes para Dama (♕ / ♛)
+  fixed = fixed.replace(/'lW/g, '\u265B');
+  fixed = fixed.replace(/\bWf\b/g, '\u265B');
+
+  // OCR de captura Dama "xD" que a veces se lee "xO"
+  fixed = fixed.replace(/xO\b/g, 'xD');
+
+  return fixed;
 };
 
 export const extractTextFromPdf = async (file: File): Promise<string> => {
@@ -81,7 +103,11 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item) => ('str' in item ? item.str : '')).join(' ');
+    let pageText = textContent.items.map((item) => ('str' in item ? item.str : '')).join(' ');
+    
+    // Aplicar heurísticas de corrección de OCR a la página
+    pageText = fixOcrArtifacts(pageText);
+
     // Marcador especial de página para mantener numeración
     fullText += `@@PAGE:${i}@@ ` + pageText + ' \n ';
   }
