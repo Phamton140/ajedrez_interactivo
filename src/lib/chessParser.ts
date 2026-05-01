@@ -157,8 +157,8 @@ export const tokenize = (text: string): Token[] => {
     // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
     spaced = spaced.replace(/O\s*-\s*O\s*-\s*O/g, 'O-O-O');
     spaced = spaced.replace(/O\s*-\s*O/g, 'O-O');
-    // Manejar jugadas pegadas al número como 1.e4 -> 1. e4
-    spaced = spaced.replace(/(\d+\.+)([A-Za-z])/g, '$1 $2');
+    // Manejar jugadas pegadas al número como 1.e4 -> 1. e4 o 1.♞f3 -> 1. ♞f3
+    spaced = spaced.replace(/(\d+\.+)([A-Za-z\u2654-\u265E\ufffd])/g, '$1 $2');
     
     // Separar jugadas pegadas tipo e4e5 -> e4 e5
     spaced = spaced.replace(/([a-h][1-8])([a-h][1-8])/g, '$1 $2');
