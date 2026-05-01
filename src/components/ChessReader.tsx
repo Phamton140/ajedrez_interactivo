@@ -4,6 +4,7 @@ import { FileUp, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucid
 import { extractTextFromPdf, tokenize, parsePGNTree, translateEsToEn, translateEnToEs, type ChessState, type GameNode } from '../lib/chessParser';
 import { Chess } from 'chess.js';
 import { v4 as uuidv4 } from 'uuid';
+import { BookOpen } from 'lucide-react';
 
 export const ChessReader = () => {
   const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -11,6 +12,7 @@ export const ChessReader = () => {
   const [currentFen, setCurrentFen] = useState(STARTING_FEN);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number | null>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -50,8 +52,10 @@ export const ChessReader = () => {
     if (node) {
       if (node.type === 'move' || node.type === 'missing_move') {
         setCurrentFen(node.fen);
+        if (node.pageNumber) setCurrentPage(node.pageNumber);
       } else if (node.type === 'root') {
         setCurrentFen(STARTING_FEN);
+        setCurrentPage(null);
       }
       setActiveNodeId(nodeId);
     }
@@ -365,8 +369,14 @@ export const ChessReader = () => {
             />
           </div>
         </div>
-        <div className="text-[10px] text-slate-600 font-mono mb-4 w-full text-center truncate px-4">
-          FEN: {currentFen}
+        <div className="text-[10px] text-slate-600 font-mono mb-4 w-full text-center truncate px-4 flex items-center justify-center gap-3">
+          <span>FEN: {currentFen}</span>
+          {currentPage && gameState && (
+            <span className="flex items-center gap-1 text-slate-500 shrink-0">
+              <BookOpen size={11} />
+              Pág. {currentPage} / {gameState.totalPages}
+            </span>
+          )}
         </div>
         
         <div className="flex gap-4">

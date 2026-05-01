@@ -28,18 +28,21 @@ export interface GameNode {
   isMainLine: boolean;
   missingColor?: 'w' | 'b'; // Indica qué color omitió la jugada
   playedColor?: 'w' | 'b';
+  pageNumber?: number; // Página del PDF donde aparece esta jugada
 }
 
 export interface ChessState {
   nodes: Record<string, GameNode>;
   rootId: string;
+  totalPages: number;
 }
 
-export type TokenType = 'MoveNumber' | 'SAN' | 'ParenOpen' | 'ParenClose' | 'NAG' | 'Text';
+export type TokenType = 'MoveNumber' | 'SAN' | 'ParenOpen' | 'ParenClose' | 'NAG' | 'Text' | 'PageBreak';
 
 export interface Token {
   type: TokenType;
   value: string;
+  page?: number;
 }
 
 const SAN_REGEX = /^([RDTAC])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC]))?([+#]?)([?!]*)$/;
@@ -54,58 +57,96 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
     const pageText = textContent.items.map((item: { str: string }) => item.str).join(' ');
-    fullText += pageText + ' \n ';
+    // Marcador especial de página para mantener numeración
+    fullText += `@@PAGE:${i}@@ ` + pageText + ' \n ';
   }
   
   return fullText;
 };
 
+/**
+ * Extrae el texto de cada página individualmente, para uso en sistemas de navegación por páginas.
+ */
+export const extractTextByPage = async (file: File): Promise<{ page: number; text: string }[]> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages: { page: number; text: string }[] = [];
+  
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const text = textContent.items.map((item: { str: string }) => item.str).join(' ');
+    pages.push({ page: i, text });
+  }
+  
+  return pages;
+};
+
 export const tokenize = (text: string): Token[] => {
   const tokens: Token[] = [];
   
-  let spaced = text.replace(/([()[\]{}])/g, ' $1 ');
-  // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
-  spaced = spaced.replace(/O\s*-\s*O\s*-\s*O/g, 'O-O-O');
-  spaced = spaced.replace(/O\s*-\s*O/g, 'O-O');
-  // Manejar jugadas pegadas al número como 1.e4 -> 1. e4
-  spaced = spaced.replace(/(\d+\.+)([A-Za-z])/g, '$1 $2');
+  // Procesar marcadores de página antes de espaciar
+  const parts = text.split(/@@PAGE:(\d+)@@/);
   
-  // Separar jugadas pegadas tipo e4e5 -> e4 e5
-  spaced = spaced.replace(/([a-h][1-8])([a-h][1-8])/g, '$1 $2'); // e4e5
-  spaced = spaced.replace(/([RDTAC][a-h][1-8])([RDTAC][a-h][1-8])/g, '$1 $2'); // Cf3Cc6
-  spaced = spaced.replace(/([RDTAC][a-h][1-8])([a-h][1-8])/g, '$1 $2'); // Ab5a6
-  spaced = spaced.replace(/([a-h][1-8])([RDTAC][a-h][1-8])/g, '$1 $2'); // e4Cf6
-  spaced = spaced.replace(/([a-h]x[a-h][1-8])([a-h]x[a-h][1-8])/g, '$1 $2'); // exd5cxd5
-  
-  const rawTokens = spaced.split(/\s+/);
-  
-  for (const t of rawTokens) {
-    if (!t) continue;
+  const processChunk = (chunk: string, page: number) => {
+    let spaced = chunk.replace(/([()[\]{}])/g, ' $1 ');
+    // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
+    spaced = spaced.replace(/O\s*-\s*O\s*-\s*O/g, 'O-O-O');
+    spaced = spaced.replace(/O\s*-\s*O/g, 'O-O');
+    // Manejar jugadas pegadas al número como 1.e4 -> 1. e4
+    spaced = spaced.replace(/(\d+\.+)([A-Za-z])/g, '$1 $2');
     
-    if (t === '(') { tokens.push({ type: 'ParenOpen', value: '(' }); continue; }
-    if (t === ')') { tokens.push({ type: 'ParenClose', value: ')' }); continue; }
+    // Separar jugadas pegadas tipo e4e5 -> e4 e5
+    spaced = spaced.replace(/([a-h][1-8])([a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([RDTAC][a-h][1-8])([RDTAC][a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([RDTAC][a-h][1-8])([a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([a-h][1-8])([RDTAC][a-h][1-8])/g, '$1 $2');
+    spaced = spaced.replace(/([a-h]x[a-h][1-8])([a-h]x[a-h][1-8])/g, '$1 $2');
     
-    // Indicadores de movimiento: 1. o 23...
-    if (/^\d+\.+$/.test(t)) {
-      tokens.push({ type: 'MoveNumber', value: t });
-      continue;
-    }
+    const rawTokens = spaced.split(/\s+/);
+    
+    for (const t of rawTokens) {
+      if (!t) continue;
+      
+      if (t === '(') { tokens.push({ type: 'ParenOpen', value: '(', page }); continue; }
+      if (t === ')') { tokens.push({ type: 'ParenClose', value: ')', page }); continue; }
+      
+      // Indicadores de movimiento: 1. o 23...
+      if (/^\d+\.+$/.test(t)) {
+        tokens.push({ type: 'MoveNumber', value: t, page });
+        continue;
+      }
 
-    // Separar signos de puntuación finales que no sean parte del ajedrez
-    const cleanMatch = t.match(/^(.*?)([,;.]+)$/);
-    let word = t;
-    let trailingPunct = '';
-    if (cleanMatch && !SAN_REGEX.test(t)) {
-       // Si no es SAN completo, extraemos la puntuación
-       word = cleanMatch[1];
-       trailingPunct = cleanMatch[2];
+      // Separar signos de puntuación finales que no sean parte del ajedrez
+      const cleanMatch = t.match(/^(.*?)([,;.]+)$/);
+      let word = t;
+      let trailingPunct = '';
+      if (cleanMatch && !SAN_REGEX.test(t)) {
+         word = cleanMatch[1];
+         trailingPunct = cleanMatch[2];
+      }
+      
+      if (SAN_REGEX.test(word) || CASTLING_REGEX.test(word)) {
+         tokens.push({ type: 'SAN', value: word, page });
+         if (trailingPunct) tokens.push({ type: 'Text', value: trailingPunct, page });
+      } else {
+         tokens.push({ type: 'Text', value: t, page });
+      }
     }
-    
-    if (SAN_REGEX.test(word) || CASTLING_REGEX.test(word)) {
-       tokens.push({ type: 'SAN', value: word });
-       if (trailingPunct) tokens.push({ type: 'Text', value: trailingPunct });
-    } else {
-       tokens.push({ type: 'Text', value: t });
+  };
+
+  if (parts.length === 1) {
+    // Sin marcadores de página (texto plano)
+    processChunk(parts[0], 1);
+  } else {
+    // Con marcadores de página
+    processChunk(parts[0], 0);
+    for (let i = 1; i < parts.length; i += 2) {
+      currentPage = parseInt(parts[i], 10);
+      tokens.push({ type: 'PageBreak', value: `PAGE:${currentPage}`, page: currentPage });
+      if (i + 1 < parts.length) {
+        processChunk(parts[i + 1], currentPage);
+      }
     }
   }
   
@@ -171,6 +212,8 @@ export const translateEnToEs = (sanEn: string): string => {
 export const parsePGNTree = (tokens: Token[]): ChessState => {
   const nodes: Record<string, GameNode> = {};
   const rootId = uuidv4();
+  const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  let totalPages = 1;
   
   nodes[rootId] = {
     id: rootId,
@@ -179,7 +222,7 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
     type: 'root',
     sanEs: '',
     sanEn: '',
-    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    fen: STARTING_FEN,
     moveNumber: 0,
     turn: 'w',
     commentBefore: '',
@@ -190,11 +233,18 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
   
   let currentId = rootId;
   let textBuffer: string[] = [];
-  const variationStack: string[] = [];
-  let lastProcessedType: TokenType | null = null;
+  const variationStack: string[] = []
+  // lastMoveType rastrea si el último token relevante fue un número de jugada o una jugada.
+  // 'none' = todavía no hemos visto nada relevante (inicio o tras texto largo sin número)
+  // 'number' = el último token significativo fue un MoveNumber
+  // 'move' = el último token significativo fue una SAN válida o inválida
+  // 'paren' = acabamos de abrir un paréntesis de variante
+  type LastMoveCtx = 'none' | 'number' | 'move' | 'paren';
+  let lastMoveCtx: LastMoveCtx = 'none';
   let currentMoveNumber = 1;
+  let currentPage = 1;
   
-  const flushText = (targetId: string, isBefore: boolean = false) => {
+  const flushText = (targetId: string, isBefore = false) => {
     if (textBuffer.length > 0) {
       const text = textBuffer.join(' ');
       if (isBefore) {
@@ -208,55 +258,69 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
+
+    // ── Salto de página ─────────────────────────────────────────────────────
+    if (t.type === 'PageBreak') {
+      currentPage = t.page ?? currentPage;
+      totalPages = Math.max(totalPages, currentPage);
+      // Un salto de página NO resetea el tablero. La continuidad se mantiene.
+      continue;
+    }
     
     if (t.type === 'Text') {
       textBuffer.push(t.value);
-      lastProcessedType = 'Text';
+      // NO cambiamos lastMoveCtx aquí — el texto no interrumpe la secuencia de jugadas.
+      // Esto permite que tras un comentario largo, el siguiente número de jugada
+      // todavía active el modo "esperar SAN".
     } else if (t.type === 'MoveNumber') {
-      lastProcessedType = 'MoveNumber';
       const numMatch = t.value.match(/(\d+)/);
       if (numMatch) {
-        const parsedNum = parseInt(numMatch[1], 10);
-        
-        // Detectar si hay un salto enorme en el número de jugada (mayor a 1)
-        // Esto indica que el autor saltó a otro ejemplo o partida en el texto.
-        if (currentId !== rootId) {
-          const parentMoveNum = nodes[currentId].moveNumber;
-          // Ignoramos el salto si el parentMoveNum es 0 (root) o si es solo 1 de diferencia.
-          if (parentMoveNum > 0 && Math.abs(parsedNum - parentMoveNum) > 1) {
-            flushText(currentId, false);
-            currentId = rootId;
-          }
-        }
-        
-        currentMoveNumber = parsedNum;
+        currentMoveNumber = parseInt(numMatch[1], 10);
       }
-      // Si encontramos "1." o "1...", asumimos que empieza una nueva partida/capítulo
-      if (t.value === '1.' || t.value === '1...') {
+      currentPage = t.page ?? currentPage;
+
+      // ── REGLA DE NUEVA PARTIDA ──────────────────────────────────────────
+      // Sólo reiniciamos si vemos "1." o "1..." y ya hay jugadas registradas
+      // (es decir, no estamos ya en el nodo raíz vacío).
+      // Esto implementa: "Solo reinicia si comienza desde la jugada 1".
+      if ((t.value === '1.' || t.value === '1...') && currentId !== rootId && variationStack.length === 0) {
         flushText(currentId, false);
         currentId = rootId;
       }
+
+      lastMoveCtx = 'number';
+
     } else if (t.type === 'ParenOpen') {
       flushText(currentId, false);
       if (nodes[currentId] && nodes[currentId].parentId) {
         variationStack.push(currentId);
         currentId = nodes[currentId].parentId as string;
       }
-      lastProcessedType = 'ParenOpen';
+      lastMoveCtx = 'paren';
     } else if (t.type === 'ParenClose') {
       flushText(currentId, false);
       if (variationStack.length > 0) {
         currentId = variationStack.pop() as string;
       }
-      lastProcessedType = 'ParenClose';
+      lastMoveCtx = 'move'; // Tras cerrar variante, seguimos en modo "esperar siguiente jugada"
     } else if (t.type === 'SAN') {
-      // Solo es una jugada si viene después de un número de jugada, apertura de variante, u otra jugada.
-      // Si viene después de texto, es solo un comentario que parece jugada (ej. "d4").
-      const canBeMove = lastProcessedType === 'MoveNumber' || lastProcessedType === 'SAN' || lastProcessedType === 'ParenOpen';
+      // ── DECISIÓN: ¿Es esta SAN una jugada real o texto explicativo? ──────
+      //
+      // Una SAN se considera jugada real si:
+      //  a) El contexto inmediato la espera: número de jugada, jugada previa, o apertura de variante.
+      //  b) Viene después de texto PERO hay un número de jugada en el contexto (lastMoveCtx === 'number').
+      //
+      // Una SAN se considera texto si:
+      //  c) lastMoveCtx es 'none' (nunca hemos visto ningún número de jugada aún).
+      //  d) No hay ningún indicador de jugada en el contexto.
+      //
+      // NOTA: NO degradamos automáticamente a texto si viene tras comentario.
+      // En libros de ajedrez, es común: "...y las negras respondieron 14... Cf6"
+      // donde "14..." ya fue procesado como MoveNumber, poniendo lastMoveCtx='number'.
+      const canBeMove = lastMoveCtx === 'number' || lastMoveCtx === 'move' || lastMoveCtx === 'paren';
       
       if (!canBeMove) {
         textBuffer.push(t.value);
-        lastProcessedType = 'Text';
         continue;
       }
 
@@ -273,7 +337,7 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
       const chess = new Chess(nodes[currentId].fen);
       let isValid = false;
       let fen = nodes[currentId].fen;
-      let error = undefined;
+      let error: string | undefined = undefined;
       
       let move = null;
       try {
@@ -287,7 +351,10 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
         fen = chess.fen();
       } else {
         // ¿Era una jugada del otro color? (Falta una jugada en medio)
-        const flippedFen = nodes[currentId].fen.replace(` ${currentExpectedTurn} `, ` ${currentExpectedTurn === 'w' ? 'b' : 'w'} `);
+        const flippedFen = nodes[currentId].fen.replace(
+          ` ${currentExpectedTurn} `,
+          ` ${currentExpectedTurn === 'w' ? 'b' : 'w'} `
+        );
         let validForOther = false;
         try {
           const flippedChess = new Chess(flippedFen);
@@ -314,11 +381,12 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
             error: 'Falta jugada',
             isMainLine: nodes[currentId].isMainLine && nodes[currentId].childrenIds.length === 0,
             missingColor: currentExpectedTurn,
-            playedColor: currentExpectedTurn
+            playedColor: currentExpectedTurn,
+            pageNumber: currentPage,
           };
           nodes[currentId].childrenIds.push(missingNodeId);
           nodes[missingNodeId] = missingNode;
-          currentId = missingNodeId; // Avanzamos al nodo faltante
+          currentId = missingNodeId;
           
           // Ahora reevaluamos la jugada actual contra el nuevo estado (flipped)
           currentExpectedTurn = nextTurn;
@@ -328,18 +396,16 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
             if (retryMove) {
               isValid = true;
               fen = flippedChess.fen();
-              error = undefined; // El error era por la jugada anterior
+              error = undefined;
             }
           } catch {
             error = 'Jugada inválida o fuera de secuencia';
           }
         } else {
           // La jugada es completamente inválida en esta posición para ambos colores.
-          // Es muy probable que sea texto explicativo usando notación (ej. "una idea es exd4").
-          // Lo degradamos a texto normal. Si era una jugada real con error tipográfico, 
-          // la siguiente jugada real provocará un desajuste de turno y generará un '???'.
+          // La degradamos a texto para no interrumpir el flujo.
           textBuffer.push(t.value);
-          lastProcessedType = 'Text';
+          lastMoveCtx = 'none'; // Reset: próxima SAN tampoco puede ser jugada sin número
           continue;
         }
       }
@@ -363,17 +429,18 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
         isValid,
         error,
         isMainLine,
+        pageNumber: currentPage,
       };
       
       nodes[currentId].childrenIds.push(newNodeId);
       nodes[newNodeId] = newNode;
       
       currentId = newNodeId;
-      lastProcessedType = 'SAN';
+      lastMoveCtx = 'move';
     }
   }
   
   flushText(currentId, false);
   
-  return { nodes, rootId };
+  return { nodes, rootId, totalPages };
 };
