@@ -80,8 +80,11 @@ export const displaySan = (san: string): string => {
 const fixOcrArtifacts = (text: string): string => {
   let fixed = text;
   
-  // Corrige 'l.' o 'I.' que en realidad son el número '1.' al inicio de una jugada
-  fixed = fixed.replace(/\b[lI]\./g, '1.');
+  // Corrige 'l.' o 'I.' que en realidad son el número '1.' al inicio de una jugada, incluso con espacio extra
+  fixed = fixed.replace(/\b[lI]\s*\./g, '1.');
+
+  // Une el número de jugada con su punto si el OCR los separó (ej. "2 ." -> "2.")
+  fixed = fixed.replace(/\b(\d+)\s+\./g, '$1.');
 
   // Une el número de jugada con los puntos suspensivos si el OCR los separó (ej. "2 ..." -> "2...")
   fixed = fixed.replace(/\b(\d+)\s+\.\.\./g, '$1...');
