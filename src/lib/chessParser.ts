@@ -80,16 +80,20 @@ export const displaySan = (san: string): string => {
 const fixOcrArtifacts = (text: string): string => {
   let fixed = text;
   
-  // Corrige 'l.' o 'I.' que en realidad son el número '1.' al inicio de una jugada, incluso con espacio extra
+  // 1. OCR que separa la letra y el número de la casilla (ej. "e 5" -> "e5")
+  // DEBE ir antes de las reglas de números de jugada para evitar que "e 5 2 ." se convierta en "e 52."
+  fixed = fixed.replace(/\b([a-h]) ([1-8])\b/g, '$1$2');
+
+  // 2. Corrige 'l.' o 'I.' que en realidad son el número '1.' al inicio de una jugada, incluso con espacio extra
   fixed = fixed.replace(/\b[lI]\s*\./g, '1.');
 
-  // Corrige OCR de 'lO.' que en realidad es '10.'
+  // 3. Corrige OCR de 'lO.' que en realidad es '10.'
   fixed = fixed.replace(/\blO\s*\./g, '10.');
 
-  // Espacios dentro de números de jugada (ej. "1 1." -> "11.")
+  // 4. Espacios dentro de números de jugada (ej. "1 1." -> "11.")
   fixed = fixed.replace(/\b(\d)\s+(\d)\s*\./g, '$1$2.');
 
-  // Une el número de jugada con su punto si el OCR los separó (ej. "2 ." -> "2.")
+  // 5. Une el número de jugada con su punto si el OCR los separó (ej. "2 ." -> "2.")
   fixed = fixed.replace(/\b(\d+)\s+\./g, '$1.');
 
   // Une el número de jugada con los puntos suspensivos si el OCR los separó (ej. "2 ..." -> "2...")
@@ -107,9 +111,6 @@ const fixOcrArtifacts = (text: string): string => {
   // OCR de captura Dama "xD" que a veces se lee "xO"
   fixed = fixed.replace(/xO\b/g, 'xD');
   
-  // OCR que separa la letra y el número de la casilla (ej. "e 5" -> "e5")
-  fixed = fixed.replace(/\b([a-h]) ([1-8])\b/g, '$1$2');
-
   // OCR que confunde el número 5 con la letra S mayúscula en casillas (ej. "dS" -> "d5")
   fixed = fixed.replace(/\b([a-h])S\b/g, '$15');
 
