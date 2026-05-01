@@ -81,16 +81,19 @@ const fixOcrArtifacts = (text: string): string => {
   let fixed = text;
   
   // Artefactos comunes para Caballo (♘ / ♞)
-  fixed = fixed.replace(/\btLl\b/g, '\u265E');
-  fixed = fixed.replace(/\btt:l\b/g, '\u265E');
+  fixed = fixed.replace(/tLl/g, '\u265E');
+  fixed = fixed.replace(/tt:l/g, '\u265E');
   fixed = fixed.replace(/&ij/g, '\u265E');
 
   // Artefactos comunes para Dama (♕ / ♛)
   fixed = fixed.replace(/'lW/g, '\u265B');
-  fixed = fixed.replace(/\bWf\b/g, '\u265B');
+  fixed = fixed.replace(/Wf/g, '\u265B');
 
   // OCR de captura Dama "xD" que a veces se lee "xO"
   fixed = fixed.replace(/xO\b/g, 'xD');
+  
+  // OCR que separa la letra y el número de la casilla (ej. "e 5" -> "e5")
+  fixed = fixed.replace(/\b([a-h]) ([1-8])\b/g, '$1$2');
 
   return fixed;
 };
