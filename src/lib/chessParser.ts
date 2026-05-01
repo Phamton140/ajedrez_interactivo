@@ -316,7 +316,7 @@ export const parsePGNTree = (tokens: Token[]): ChessState => {
   // 'number' = el último token significativo fue un MoveNumber
   // 'move' = el último token significativo fue una SAN válida o inválida
   // 'paren' = acabamos de abrir un paréntesis de variante
-  type LastMoveCtx = 'none' | 'number' | 'move' | 'paren';
+  type LastMoveCtx = 'none' | 'number' | 'move' | 'paren' | 'text';
   let lastMoveCtx: LastMoveCtx = 'none';
   let currentMoveNumber = 1;
   let currentPage = 1;
