@@ -48,6 +48,24 @@ export interface Token {
 const SAN_REGEX = /^([RDTAC])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([RDTAC]))?([+#]?)([?!]*)$/;
 const CASTLING_REGEX = /^O-O(-O)?([+#]?)([?!]*)$/;
 
+/**
+ * Mapeo de símbolos Unicode de piezas de ajedrez a su equivalente en notación
+ * algébraica española. Se usan tanto los símbolos blancos como los negros
+ * ya que en libros de texto ambos se emplean indistintamente.
+ */
+const CHESS_SYMBOL_MAP: Record<string, string> = {
+  '\u2654': 'R', '\u265A': 'R', // ♔ ♚ Rey
+  '\u2655': 'D', '\u265B': 'D', // ♕ ♛ Dama
+  '\u2656': 'T', '\u265C': 'T', // ♖ ♜ Torre
+  '\u2657': 'A', '\u265D': 'A', // ♗ ♝ Alfil
+  '\u2658': 'C', '\u265E': 'C', // ♘ ♞ Caballo
+  // ♙♟ Peón: no tiene letra en SAN, se omite conscientemente
+};
+
+/** Sustituye símbolos Unicode de piezas por sus letras en español. */
+const normalizeChessSymbols = (text: string): string =>
+  text.replace(/[\u2654-\u265E]/g, (sym) => CHESS_SYMBOL_MAP[sym] ?? sym);
+
 export const extractTextFromPdf = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -56,7 +74,7 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item: { str: string }) => item.str).join(' ');
+    const pageText = textContent.items.map((item) => ('str' in item ? item.str : '')).join(' ');
     // Marcador especial de página para mantener numeración
     fullText += `@@PAGE:${i}@@ ` + pageText + ' \n ';
   }
@@ -75,7 +93,7 @@ export const extractTextByPage = async (file: File): Promise<{ page: number; tex
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    const text = textContent.items.map((item: { str: string }) => item.str).join(' ');
+    const text = textContent.items.map((item) => ('str' in item ? item.str : '')).join(' ');
     pages.push({ page: i, text });
   }
   
@@ -89,7 +107,9 @@ export const tokenize = (text: string): Token[] => {
   const parts = text.split(/@@PAGE:(\d+)@@/);
   
   const processChunk = (chunk: string, page: number) => {
-    let spaced = chunk.replace(/([()[\]{}])/g, ' $1 ');
+    // Primero normalizamos los símbolos Unicode de piezas a letras españolas
+    let spaced = normalizeChessSymbols(chunk);
+    spaced = spaced.replace(/([()[\]{}])/g, ' $1 ');
     // Reparar enroques que vengan separados por espacios en el PDF (ej. O - O)
     spaced = spaced.replace(/O\s*-\s*O\s*-\s*O/g, 'O-O-O');
     spaced = spaced.replace(/O\s*-\s*O/g, 'O-O');
@@ -142,7 +162,7 @@ export const tokenize = (text: string): Token[] => {
     // Con marcadores de página
     processChunk(parts[0], 0);
     for (let i = 1; i < parts.length; i += 2) {
-      currentPage = parseInt(parts[i], 10);
+      const currentPage = parseInt(parts[i], 10);
       tokens.push({ type: 'PageBreak', value: `PAGE:${currentPage}`, page: currentPage });
       if (i + 1 < parts.length) {
         processChunk(parts[i + 1], currentPage);
